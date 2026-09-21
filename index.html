@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Kerzenkalkulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#b23a5b">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#fbf4ea;--card:#fffaf3;--ink:#3b2a2a;--mute:#8a7466;--line:#eadccb;--acc:#b23a5b;--accInk:#fff;--warn:#a5540f}
+@media (prefers-color-scheme:dark){:root{--bg:#211a1a;--card:#2b2222;--ink:#f3e6dc;--mute:#b5a093;--line:#403333;--acc:#e07a9b;--accInk:#2a1218;--warn:#f0b070}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 16px calc(84px + env(safe-area-inset-bottom))}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 0 4px}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;margin:0}
+h1{font-size:26px}h2{font-size:21px;margin:16px 0 8px}h3{font-size:16px;margin:14px 0 6px;color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+.f{display:block;margin:0 0 10px}.f>span{display:block;font-size:13px;color:var(--mute);margin-bottom:3px}
+input,select,button{font:inherit;color:inherit}
+input,select{width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.in{position:relative}.in input{padding-right:52px}.in i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--mute);font-size:14px;pointer-events:none}
+.g2,.g3{display:grid;gap:10px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+.ex{display:grid;grid-template-columns:1fr 110px 44px;gap:8px;margin-bottom:8px}
+button{min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 14px;cursor:pointer}
+.primary{background:var(--acc);color:var(--accInk);border:0;width:100%;font-weight:600;margin:6px 0}
+.g2 .primary{margin:0}
+.ghost{width:100%;color:var(--acc);margin-top:4px}.x{min-height:48px;padding:0}
+.sw{display:flex;gap:10px;align-items:center;margin:14px 0 8px}.sw input{width:24px;min-height:24px;height:24px}
+.hint{color:var(--mute);font-size:15px}.warn{color:var(--warn);font-size:15px;margin:8px 0 0}
+.price{text-align:center;padding:6px 0 12px}.price small{display:block;color:var(--mute);font-size:13px}.price b{font-family:Georgia,serif;font-size:42px;color:var(--acc)}
+.r{display:flex;justify-content:space-between;padding:3px 0}.sum{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+hr{border:0;border-top:1px solid var(--line);margin:10px 0}.vol{color:var(--mute);margin:0 0 6px}
+nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{border:0;border-radius:0;background:none;min-height:60px;font-size:13px;color:var(--mute)}
+nav button.on{color:var(--acc);font-weight:700}nav b{display:block;font-size:20px}
+dialog{width:min(92vw,560px);max-height:88vh;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:18px}
+dialog::backdrop{background:#0008}dialog ul{padding-left:20px}dialog li{margin-bottom:6px}
+.round{width:48px;padding:0;font-size:20px}
+</style>
+</head>
+<body>
+<header><h1>Kerzenkalkulator</h1><button class="round" data-a="info" aria-label="Info und Daten">ⓘ</button></header>
+<main id="app"></main>
+<nav>
+  <button data-t="calc"><b>🕯</b>Kalkulator</button>
+  <button data-t="vessels"><b>🫙</b>Gefäße</button>
+  <button data-t="stock"><b>💧</b>Zutaten</button>
+  <button data-t="rec"><b>📖</b>Rezepte</button>
+</nav>
+
+<dialog id="dlg">
+  <h2 style="margin-top:0">Daten</h2>
+  <p class="hint">Alles liegt nur auf diesem Handy. Sichere regelmäßig, sonst ist bei gelöschten Browserdaten alles weg.</p>
+  <div class="g2"><button class="primary" data-a="export">Sichern</button><button class="ghost" data-a="import" style="margin:0">Wiederherstellen</button></div>
+  <input type="file" id="imp" accept="application/json,.json" hidden>
+  <h2>Merkzettel zum Verkauf</h2>
+  <p class="hint">Aus deinem NotebookLM-Material, nicht rechtlich geprüft. Vor dem Verkauf selbst klären, keine Rechtsberatung.</p>
+  <ul>
+    <li><b>Keine Lebensmittel-Optik:</b> Dessertkerzen dürfen nicht mit echtem Essen verwechselbar sein (GPSR, § 5 LFGB). „Nicht essbar“ als Aufkleber allein reicht laut Quelle nicht.</li>
+    <li><b>Lose Deko</b> (Beeren, Kekse) nicht kleiner als 3,17 cm (Erstickungsschutzkegel).</li>
+    <li><b>Warnhinweise</b> nach DIN EN 15494: nie unbeaufsichtigt brennen lassen, außer Reichweite von Kindern und Tieren, Abstand zu Brennbarem.</li>
+    <li><b>Duftöl:</b> Allergene, Piktogramme, Signalwort, H-/P-Sätze auf dem Etikett; bei gefährlichen Gemischen UFI-Code und Meldung.</li>
+    <li><b>Auf Produkt oder Verpackung:</b> Name, Postanschrift und E-Mail, Chargennummer, Nettogewicht.</li>
+    <li><b>Dokumentation:</b> interne Risikoanalyse aufbewahren.</li>
+    <li><b>Tassen/Geschirr</b> als Behälter: ggf. zusätzliche Anzeigepflicht (BedGgstV).</li>
+    <li><b>Steuern/Gewerbe</b> beim Verkauf auf dem Markt klären.</li>
+  </ul>
+  <button class="primary" data-a="close">Schließen</button>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>
