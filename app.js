@@ -14,9 +14,11 @@ function calc(S, c) {
   const v = S.vessels.find(x => x.id === c.vesselId);
   const w = S.waxes.find(x => x.id === c.waxId);
   const o = S.oils.find(x => x.id === c.oilId);
-  const vol = v ? vesselMl(v) : 0;
-  const waxG = vol * num(c.fill) / 100 * (w ? num(w.density) : 0);
-  const oilG = waxG * num(c.pct) / 100;
+  const byWeight = c.mode === 'weight'; // Gesamtgewicht = Wachs + Duftöl, Duftöl-% bezieht sich aufs Wachs
+  const vol = !byWeight && v ? vesselMl(v) : 0;
+  const waxG = byWeight ? num(c.total) / (1 + num(c.pct) / 100)
+    : vol * num(c.fill) / 100 * (w ? num(w.density) : 0);
+  const oilG = byWeight ? num(c.total) - waxG : waxG * num(c.pct) / 100;
   const oilMl = oilG / OIL_G_PER_ML;
   const parts = {
     wax: w ? waxG / 1000 * num(w.price) : 0,
@@ -43,7 +45,7 @@ const defaults = () => ({
     ['Gelwachs', '0.97', '2', '6'],
   ].map(([name, density, pct, max]) => ({ id: uid(), name, density, price: '', pct, max })),
   oils: [], vessels: [], recipes: [],
-  calc: { vesselId: '', waxId: '', oilId: '', fill: '75', pct: '', qty: '1', extras: [] },
+  calc: { mode: 'vessel', vesselId: '', waxId: '', oilId: '', fill: '75', total: '', pct: '', qty: '1', extras: [] },
   set: { markupOn: false, markupPct: '150' },
 });
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -71,7 +73,9 @@ if (typeof document !== 'undefined') (() => {
 
   const summary = (c, q = 1) => {
     const r = calc(S, c);
-    if (!r.vol || !S.waxes.find(w => w.id === c.waxId)) return '<p class="hint">Gefäß und Wachs wählen, dann erscheint die Rechnung.</p>';
+    const byWeight = c.mode === 'weight';
+    if (!(byWeight ? r.waxG : r.vol) || !S.waxes.find(w => w.id === c.waxId))
+      return `<p class="hint">${byWeight ? 'Wachs wählen und Gesamtgewicht eintragen' : 'Gefäß und Wachs wählen'}, dann erscheint die Rechnung.</p>`;
     const p = r.parts;
     return `<div class="price"><small>${S.set.markupOn ? 'Verkaufspreis' : 'Preis'} (auf 0,50 € gerundet)</small><b>${eur(r.price)}</b></div>` +
       row('Wachs', `${fmt(r.waxG)} g`) + row('Duftöl', `${fmt(r.oilG)} g · ${fmt(r.oilMl)} ml`) +
@@ -84,13 +88,15 @@ if (typeof document !== 'undefined') (() => {
 
   const views = {
     calc() {
-      const c = S.calc;
-      return `${S.vessels.length ? '' : '<p class="hint">Lege zuerst im Reiter <b>Gefäße</b> ein Gefäß an.</p>'}
+      const c = S.calc, bw = c.mode === 'weight';
+      return `${bw || S.vessels.length ? '' : '<p class="hint">Lege zuerst im Reiter <b>Gefäße</b> ein Gefäß an.</p>'}
+      <div class="seg"><button data-a="mode" data-m="vessel"${bw ? '' : ' class="on"'}>Nach Gefäß</button><button data-a="mode" data-m="weight"${bw ? ' class="on"' : ''}>Nach Gewicht</button></div>
       <section class="card"><h2>Kerze</h2>
-        <label class="f"><span>Gefäß</span><select data-c="vesselId">${opts(S.vessels, c.vesselId, '– wählen –')}</select></label>
+        <label class="f"><span>${bw ? 'Gefäß (optional, nur für den Preis)' : 'Gefäß'}</span><select data-c="vesselId">${opts(S.vessels, c.vesselId, bw ? '– ohne –' : '– wählen –')}</select></label>
         <label class="f"><span>Wachs</span><select data-c="waxId">${opts(S.waxes, c.waxId, '– wählen –')}</select></label>
         <label class="f"><span>Duftöl</span><select data-c="oilId">${opts(S.oils, c.oilId, '– ohne –')}</select></label>
-        <div class="g3">${inp('data-c="fill"', c.fill, 'Füllgrad', '%')}${inp('data-c="pct"', c.pct, 'Duftöl', '%')}${inp('data-c="qty"', c.qty, 'Stück', '')}</div>
+        <div class="g3">${bw ? inp('data-c="total"', c.total, 'Gesamtgew.', 'g') : inp('data-c="fill"', c.fill, 'Füllgrad', '%')}${inp('data-c="pct"', c.pct, 'Duftöl', '%')}${inp('data-c="qty"', c.qty, 'Stück', '')}</div>
+        ${bw ? '<p class="hint">Gesamtgewicht = Wachs + Duftöl. Das Duftöl-% gilt wie überall in der App für das Wachsgewicht, nicht fürs Gesamtgewicht.</p>' : ''}
         <h3>Extras pro Kerze</h3>
         ${c.extras.map(e => `<div class="ex"><input data-x="${e.id}" data-f="name" value="${esc(e.name)}" placeholder="z. B. Docht, Sahne-Deko">
           <div class="in"><input type="number" inputmode="decimal" step="any" min="0" data-x="${e.id}" data-f="price" value="${esc(e.price)}"><i>€</i></div>
@@ -132,7 +138,7 @@ if (typeof document !== 'undefined') (() => {
       return S.recipes.map(r => {
         const vid = rv[r.id] || r.c.vesselId, c = { ...r.c, vesselId: vid };
         return `<section class="card">${L('recipes', r.id, 'name', r.name, 'Rezept', '', 'text')}
-          <label class="f"><span>Umrechnen auf Gefäß</span><select data-rv="${r.id}">${opts(S.vessels, vid, '– wählen –')}</select></label>
+          ${r.c.mode === 'weight' ? '' : `<label class="f"><span>Umrechnen auf Gefäß</span><select data-rv="${r.id}">${opts(S.vessels, vid, '– wählen –')}</select></label>`}
           ${summary(c, 1)}
           <div class="g2"><button class="primary" data-a="loadrec" data-id="${r.id}">In Kalkulator</button>
           <button class="ghost" data-a="del" data-l="recipes" data-id="${r.id}">Löschen</button></div></section>`;
@@ -176,13 +182,14 @@ if (typeof document !== 'undefined') (() => {
   const act = {
     add: d => S[d.l].push(blank[d.l]()),
     del: d => { if (confirm('Wirklich löschen?')) S[d.l] = S[d.l].filter(x => x.id !== d.id); },
+    mode: d => { S.calc.mode = d.m; },
     addx: () => S.calc.extras.push({ id: uid(), name: '', price: '' }),
     delx: d => { S.calc.extras = S.calc.extras.filter(x => x.id !== d.id); },
     saverec: () => {
       const name = prompt('Name des Rezepts?'); if (!name) return;
       S.recipes.push({ id: uid(), name, c: clone(S.calc) }); tab = 'rec';
     },
-    loadrec: d => { const r = S.recipes.find(x => x.id === d.id); S.calc = { ...clone(r.c), vesselId: rv[d.id] || r.c.vesselId }; tab = 'calc'; },
+    loadrec: d => { const r = S.recipes.find(x => x.id === d.id); S.calc = { ...clone(r.c), vesselId: r.c.mode === 'weight' ? r.c.vesselId : rv[d.id] || r.c.vesselId }; tab = 'calc'; },
     info: () => $('#dlg').showModal(),
     close: () => $('#dlg').close(),
     export: () => {

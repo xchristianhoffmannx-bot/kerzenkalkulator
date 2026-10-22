@@ -24,4 +24,15 @@ S.set.markupOn = true; S.set.markupPct = '150';
 assert.equal(calc(S, c).price, r05(r.material * 2.5));             // mit Aufschlag
 assert.equal(r05(3.24), 3); assert.equal(r05(3.26), 3.5); assert.equal(r05(3.75), 4);
 assert.equal(calc(S, { ...c, pct: '15' }).warn.length, 1);         // über Herstellermaximum (12 %)
+
+// Modus „Nach Gewicht“: Gesamtgewicht = Wachs + Öl, Öl-% vom Wachs
+const w = calc(S, { ...c, mode: 'weight', total: '270', pct: '8', vesselId: '' });
+assert.ok(Math.abs(w.waxG - 250) < 1e-9);                          // 270 / 1,08
+assert.ok(Math.abs(w.oilG - 20) < 1e-9);
+assert.ok(Math.abs(w.waxG + w.oilG - 270) < 1e-9);
+assert.equal(w.parts.vessel, 0);                                   // ohne Gefäß kein Gefäßpreis
+assert.ok(Math.abs(w.parts.wax - 2.5) < 1e-9);                     // 250 g à 10 €/kg
+assert.ok(Math.abs(w.parts.oil - 20 / 0.95 * 0.3) < 1e-9);
+assert.equal(calc(S, { ...c, mode: 'weight', total: '270', pct: '8' }).parts.vessel, 1.2); // optionales Gefäß
+assert.equal(calc(S, { ...c, mode: 'weight', total: '', pct: '8' }).waxG, 0);              // leere Eingabe
 console.log('ok');
