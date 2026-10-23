@@ -10,18 +10,37 @@ function vesselMl(v) {
   return v.shape === 'rect' ? num(v.l) * num(v.w) * h : Math.PI * (num(v.d) / 2) ** 2 * h;
 }
 
+// Wachs-Mischung: Die erste Sorte (c.waxId) bekommt den Rest auf 100 %, weitere Sorten (c.mix) haben feste Anteile am Wachsgewicht.
+function waxMix(S, c) {
+  const extra = c.mix || [];
+  const sum = extra.reduce((s, m) => s + num(m.share), 0);
+  const raw = [{ id: c.waxId, share: Math.max(0, 100 - sum) }, ...extra.map(m => ({ id: m.waxId, share: num(m.share) }))]
+    .map(x => ({ w: S.waxes.find(w => w.id === x.id), share: x.share })).filter(x => x.w && x.share > 0);
+  const total = raw.reduce((s, x) => s + x.share, 0);
+  const list = raw.map(x => ({ ...x, f: x.share / total })); // f = Massenanteil, auf 100 % normiert
+  const inv = list.reduce((s, x) => s + (num(x.w.density) > 0 ? x.f / num(x.w.density) : NaN), 0);
+  // ponytail: ideale Mischung, Dichte = 1 / Σ(Massenanteil / Dichte); bei fehlender Dichte 0
+  return { list, rest: Math.max(0, 100 - sum), over: sum > 100, density: inv > 0 && isFinite(inv) ? 1 / inv : 0 };
+}
+// Standard-Duftöl-% der Mischung (gewichtet); ohne gewähltes Wachs bleibt der Wert unverändert
+function stdPct(S, c) {
+  const m = waxMix(S, c);
+  if (!m.list.length) return c.pct;
+  return String(Math.round(m.list.reduce((s, x) => s + x.f * num(x.w.pct), 0) * 10) / 10);
+}
+
 function calc(S, c) {
   const v = S.vessels.find(x => x.id === c.vesselId);
-  const w = S.waxes.find(x => x.id === c.waxId);
+  const mix = waxMix(S, c);
   const o = S.oils.find(x => x.id === c.oilId);
   const byWeight = c.mode === 'weight'; // Gesamtgewicht = Wachs + Duftöl, Duftöl-% bezieht sich aufs Wachs
   const vol = !byWeight && v ? vesselMl(v) : 0;
   const waxG = byWeight ? num(c.total) / (1 + num(c.pct) / 100)
-    : vol * num(c.fill) / 100 * (w ? num(w.density) : 0);
+    : vol * num(c.fill) / 100 * mix.density;
   const oilG = byWeight ? num(c.total) - waxG : waxG * num(c.pct) / 100;
   const oilMl = oilG / OIL_G_PER_ML;
   const parts = {
-    wax: w ? waxG / 1000 * num(w.price) : 0,
+    wax: mix.list.reduce((s, x) => s + waxG * x.f / 1000 * num(x.w.price), 0),
     oil: o ? oilMl * num(o.price) : 0,
     vessel: v ? num(v.price) : 0,
     extras: c.extras.reduce((s, e) => s + num(e.price), 0),
@@ -29,11 +48,14 @@ function calc(S, c) {
   const material = parts.wax + parts.oil + parts.vessel + parts.extras;
   const price = r05(material * (S.set.markupOn ? 1 + num(S.set.markupPct) / 100 : 1));
   const warn = [];
-  if (w && num(c.pct) > num(w.max)) warn.push(`Duftöl ${num(c.pct)} % liegt über dem Maximum von ${num(w.max)} % für ${w.name} (Rußgefahr, verstopfter Docht).`);
-  if (w && !num(w.price)) warn.push('Wachspreis fehlt (Reiter „Zutaten“).');
+  const lim = mix.list.reduce((a, x) => !a || num(x.w.max) < num(a.w.max) ? x : a, null); // strengstes Maximum der Mischung
+  if (lim && num(c.pct) > num(lim.w.max)) warn.push(`Duftöl ${num(c.pct)} % liegt über dem Maximum von ${num(lim.w.max)} % für ${lim.w.name} (Rußgefahr, verstopfter Docht).`);
+  mix.list.forEach(x => { if (!num(x.w.price)) warn.push(`Wachspreis fehlt${mix.list.length > 1 ? ` (${x.w.name})` : ''} (Reiter „Zutaten“).`); });
+  if (mix.over) warn.push('Die Anteile der weiteren Wachssorten ergeben über 100 %. Die Mischung wird auf 100 % umgerechnet.');
   if (o && !num(o.price)) warn.push('Duftölpreis fehlt (Reiter „Zutaten“).');
   if (v && !num(v.price)) warn.push('Gefäßpreis fehlt (Reiter „Gefäße“).');
-  return { vol, waxG, oilG, oilMl, parts, material, price, warn };
+  const waxes = mix.list.map(x => ({ name: x.w.name, share: x.f * 100, g: waxG * x.f }));
+  return { vol, waxG, waxes, oilG, oilMl, parts, material, price, warn };
 }
 
 const defaults = () => ({
@@ -50,7 +72,7 @@ const defaults = () => ({
 });
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
-if (typeof module !== 'undefined') module.exports = { calc, vesselMl, r05, defaults };
+if (typeof module !== 'undefined') module.exports = { calc, vesselMl, r05, defaults, waxMix, stdPct };
 
 // ---------- Oberfläche ----------
 if (typeof document !== 'undefined') (() => {
@@ -74,11 +96,13 @@ if (typeof document !== 'undefined') (() => {
   const summary = (c, q = 1) => {
     const r = calc(S, c);
     const byWeight = c.mode === 'weight';
-    if (!(byWeight ? r.waxG : r.vol) || !S.waxes.find(w => w.id === c.waxId))
+    if (!(byWeight ? r.waxG : r.vol) || !r.waxes.length)
       return `<p class="hint">${byWeight ? 'Wachs wählen und Gesamtgewicht eintragen' : 'Gefäß und Wachs wählen'}, dann erscheint die Rechnung.</p>`;
     const p = r.parts;
     return `<div class="price"><small>${S.set.markupOn ? 'Verkaufspreis' : 'Preis'} (auf 0,50 € gerundet)</small><b>${eur(r.price)}</b></div>` +
-      row('Wachs', `${fmt(r.waxG)} g`) + row('Duftöl', `${fmt(r.oilG)} g · ${fmt(r.oilMl)} ml`) +
+      row('Wachs', `${fmt(r.waxG)} g`) +
+      (r.waxes.length > 1 ? r.waxes.map(x => row(`· ${esc(x.name || 'Wachs')} (${fmt(x.share)} %)`, `${fmt(x.g)} g`, 'sub')).join('') : '') +
+      row('Duftöl', `${fmt(r.oilG)} g · ${fmt(r.oilMl)} ml`) +
       `<hr>` + row('Wachs', eur(p.wax)) + row('Duftöl', eur(p.oil)) + row('Gefäß', eur(p.vessel)) + row('Extras', eur(p.extras)) +
       row('Materialkosten', eur(r.material), 'sum') +
       (q > 1 ? `<hr><h3>Für ${q} Kerzen</h3>` + row('Wachs', `${fmt(r.waxG * q / 1000, 2)} kg`) + row('Duftöl', `${fmt(r.oilMl * q)} ml`) +
@@ -93,7 +117,11 @@ if (typeof document !== 'undefined') (() => {
       <div class="seg"><button data-a="mode" data-m="vessel"${bw ? '' : ' class="on"'}>Nach Gefäß</button><button data-a="mode" data-m="weight"${bw ? ' class="on"' : ''}>Nach Gewicht</button></div>
       <section class="card"><h2>Kerze</h2>
         <label class="f"><span>${bw ? 'Gefäß (optional, nur für den Preis)' : 'Gefäß'}</span><select data-c="vesselId">${opts(S.vessels, c.vesselId, bw ? '– ohne –' : '– wählen –')}</select></label>
-        <label class="f"><span>Wachs</span><select data-c="waxId">${opts(S.waxes, c.waxId, '– wählen –')}</select></label>
+        <label class="f"><span>Wachs<span class="rest"></span></span><select data-c="waxId">${opts(S.waxes, c.waxId, '– wählen –')}</select></label>
+        ${(c.mix || []).map(m => `<div class="ex"><select data-w="${m.id}" data-f="waxId">${opts(S.waxes, m.waxId, '– wählen –')}</select>
+          <div class="in"><input type="number" inputmode="decimal" step="any" min="0" data-w="${m.id}" data-f="share" value="${esc(m.share)}" aria-label="Anteil in Prozent"><i>%</i></div>
+          <button class="x" data-a="delm" data-id="${m.id}" aria-label="Wachssorte entfernen">✕</button></div>`).join('')}
+        <button class="ghost" data-a="addm" style="margin-bottom:10px">+ Weitere Wachssorte</button>
         <label class="f"><span>Duftöl</span><select data-c="oilId">${opts(S.oils, c.oilId, '– ohne –')}</select></label>
         <div class="g3">${bw ? inp('data-c="total"', c.total, 'Gesamtgew.', 'g') : inp('data-c="fill"', c.fill, 'Füllgrad', '%')}${inp('data-c="pct"', c.pct, 'Duftöl', '%')}${inp('data-c="qty"', c.qty, 'Stück', '')}</div>
         ${bw ? '<p class="hint">Gesamtgewicht = Wachs + Duftöl. Das Duftöl-% gilt wie überall in der App für das Wachsgewicht, nicht fürs Gesamtgewicht.</p>' : ''}
@@ -148,6 +176,7 @@ if (typeof document !== 'undefined') (() => {
 
   function updateLive() {
     const r = $('#result'); if (r) r.innerHTML = summary(S.calc, Math.max(1, num(S.calc.qty) || 1));
+    const rest = $('.rest'); if (rest) rest.textContent = (S.calc.mix || []).length ? ` · Rest ${fmt(waxMix(S, S.calc).rest)} %` : ''; // Restanteil der ersten Sorte live halten
     document.querySelectorAll('.vol').forEach(p => {
       const v = S.vessels.find(x => x.id === p.dataset.id);
       p.textContent = v ? `Volumen: ${fmt(vesselMl(v), 0)} ml` : '';
@@ -164,7 +193,10 @@ if (typeof document !== 'undefined') (() => {
     if (d.l) S[d.l].find(x => x.id === d.id)[d.f] = val;
     else if (d.c) {
       S.calc[d.c] = val;
-      if (d.c === 'waxId') { const w = S.waxes.find(x => x.id === val); if (w) S.calc.pct = w.pct; }
+      if (d.c === 'waxId') S.calc.pct = stdPct(S, S.calc);
+    } else if (d.w) {
+      S.calc.mix.find(x => x.id === d.w)[d.f] = val;
+      if (d.f === 'waxId') S.calc.pct = stdPct(S, S.calc);
     } else if (d.x) S.calc.extras.find(x => x.id === d.x)[d.f] = val;
     else if (d.s) S.set[d.s] = val;
     else if (d.rv) rv[d.rv] = val;
@@ -183,6 +215,8 @@ if (typeof document !== 'undefined') (() => {
     add: d => S[d.l].push(blank[d.l]()),
     del: d => { if (confirm('Wirklich löschen?')) S[d.l] = S[d.l].filter(x => x.id !== d.id); },
     mode: d => { S.calc.mode = d.m; },
+    addm: () => { S.calc.mix = [...(S.calc.mix || []), { id: uid(), waxId: '', share: String(Math.round(waxMix(S, S.calc).rest / 2)) }]; },
+    delm: d => { S.calc.mix = (S.calc.mix || []).filter(x => x.id !== d.id); S.calc.pct = stdPct(S, S.calc); },
     addx: () => S.calc.extras.push({ id: uid(), name: '', price: '' }),
     delx: d => { S.calc.extras = S.calc.extras.filter(x => x.id !== d.id); },
     saverec: () => {
