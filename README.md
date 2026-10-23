@@ -9,6 +9,8 @@ The interface is in German. It is a Progressive Web App (PWA): open it in Chrome
 ## Features
 
 - **Wax amount** from container volume, fill level and wax density.
+- **Weight mode:** enter only the total candle weight and the fragrance percentage. Total = wax + oil, the percentage refers to the wax weight.
+- **Wax blends:** add further wax types with their share in %. The first wax gets the remainder up to 100 %. Density is mixed by weight, cost is calculated per wax, and the warning uses the lowest fragrance maximum in the blend.
 - **Fragrance oil amount** as a percentage of wax weight, shown in grams and millilitres. A warning appears if the percentage exceeds the wax's maximum.
 - **Containers**, round or rectangular. Enter the volume in ml, or the dimensions and let the app calculate it. If ml is filled in, it takes precedence.
 - **Cost breakdown** for wax, fragrance oil, container and any extras (wick, decoration, label, packaging).
