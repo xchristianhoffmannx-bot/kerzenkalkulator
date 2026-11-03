@@ -5,9 +5,9 @@ const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
 const r05 = n => Math.round(n * 2) / 2;
 
 function vesselMl(v) {
-  if (num(v.ml) > 0) return num(v.ml); // ml hat Vorrang vor Maßen
   const h = num(v.h);
-  return v.shape === 'rect' ? num(v.l) * num(v.w) * h : Math.PI * (num(v.d) / 2) ** 2 * h;
+  const dim = v.shape === 'rect' ? num(v.l) * num(v.w) * h : Math.PI * (num(v.d) / 2) ** 2 * h;
+  return dim || num(v.ml); // ponytail: ml nur noch Fallback für früher gespeicherte Gefäße
 }
 
 // Wachs-Mischung: Die erste Sorte (c.waxId) bekommt den Rest auf 100 %, weitere Sorten (c.mix) haben feste Anteile am Wachsgewicht.
@@ -55,7 +55,13 @@ function calc(S, c) {
   if (o && !num(o.price)) warn.push('Duftölpreis fehlt (Reiter „Zutaten“).');
   if (v && !num(v.price)) warn.push('Gefäßpreis fehlt (Reiter „Gefäße“).');
   const waxes = mix.list.map(x => ({ name: x.w.name, share: x.f * 100, g: waxG * x.f }));
-  return { vol, waxG, waxes, oilG, oilMl, parts, material, price, warn };
+  // Nachgewogen: fertige Kerze minus leeres Glas = tatsächlich verbrauchtes Wachs + Öl (Öl-% gilt fürs Wachs)
+  let actual = null;
+  if (num(c.finished) > 0 && v && num(v.weight) > 0) {
+    const used = num(c.finished) - num(v.weight);
+    if (used > 0) { const wax = used / (1 + num(c.pct) / 100); actual = { total: used, waxG: wax, oilG: used - wax, diff: byWeight ? used - num(c.total) : wax - waxG }; }
+  }
+  return { vol, waxG, waxes, oilG, oilMl, parts, material, price, warn, actual };
 }
 
 const defaults = () => ({
@@ -67,7 +73,7 @@ const defaults = () => ({
     ['Gelwachs', '0.97', '2', '6'],
   ].map(([name, density, pct, max]) => ({ id: uid(), name, density, price: '', pct, max })),
   oils: [], vessels: [], recipes: [],
-  calc: { mode: 'vessel', vesselId: '', waxId: '', oilId: '', fill: '75', total: '', pct: '', qty: '1', extras: [] },
+  calc: { mode: 'vessel', vesselId: '', waxId: '', oilId: '', fill: '75', total: '', finished: '', pct: '', qty: '1', extras: [] },
   set: { markupOn: false, markupPct: '150' },
 });
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -103,6 +109,8 @@ if (typeof document !== 'undefined') (() => {
       row('Wachs', `${fmt(r.waxG)} g`) +
       (r.waxes.length > 1 ? r.waxes.map(x => row(`· ${esc(x.name || 'Wachs')} (${fmt(x.share)} %)`, `${fmt(x.g)} g`, 'sub')).join('') : '') +
       row('Duftöl', `${fmt(r.oilG)} g · ${fmt(r.oilMl)} ml`) +
+      (r.actual ? `<hr><h3>Nachgewogen</h3>` + row('Verbraucht Wachs', `${fmt(r.actual.waxG)} g`) + row('Verbraucht Duftöl', `${fmt(r.actual.oilG)} g`) +
+        row(byWeight ? 'Abweichung Gesamtgewicht' : 'Abweichung Wachs', `${r.actual.diff > 0 ? '+' : ''}${fmt(r.actual.diff)} g`) : '') +
       `<hr>` + row('Wachs', eur(p.wax)) + row('Duftöl', eur(p.oil)) + row('Gefäß', eur(p.vessel)) + row('Extras', eur(p.extras)) +
       row('Materialkosten', eur(r.material), 'sum') +
       (q > 1 ? `<hr><h3>Für ${q} Kerzen</h3>` + row('Wachs', `${fmt(r.waxG * q / 1000, 2)} kg`) + row('Duftöl', `${fmt(r.oilMl * q)} ml`) +
@@ -124,6 +132,8 @@ if (typeof document !== 'undefined') (() => {
         <button class="ghost" data-a="addm" style="margin-bottom:10px">+ Weitere Wachssorte</button>
         <label class="f"><span>Duftöl</span><select data-c="oilId">${opts(S.oils, c.oilId, '– ohne –')}</select></label>
         <div class="g3">${bw ? inp('data-c="total"', c.total, 'Gesamtgew.', 'g') : inp('data-c="fill"', c.fill, 'Füllgrad', '%')}${inp('data-c="pct"', c.pct, 'Duftöl', '%')}${inp('data-c="qty"', c.qty, 'Stück', '')}</div>
+        <div class="g2">${inp('data-c="finished"', c.finished, 'Fertige Kerze gewogen', 'g')}</div>
+        <p class="hint">Optional: Kerze samt Glas wiegen. Mit dem Leergewicht des Glases (Reiter Gefäße) zeigt die App, wie viel Wachs und Duftöl wirklich verbraucht wurde.</p>
         ${bw ? '<p class="hint">Gesamtgewicht = Wachs + Duftöl. Das Duftöl-% gilt wie überall in der App für das Wachsgewicht, nicht fürs Gesamtgewicht.</p>' : ''}
         <h3>Extras pro Kerze</h3>
         ${c.extras.map(e => `<div class="ex"><input data-x="${e.id}" data-f="name" value="${esc(e.name)}" placeholder="z. B. Docht, Sahne-Deko">
@@ -137,12 +147,12 @@ if (typeof document !== 'undefined') (() => {
       <button class="primary" data-a="saverec">Als Rezept speichern</button>`;
     },
     vessels() {
-      return `<p class="hint">Entweder ml eintragen oder Maße (Innenmaße bis zur Füllhöhe). Steht ml drin, gilt ml.</p>` +
+      return `<p class="hint">Innenmaße bis zur Füllhöhe eintragen, daraus rechnet die App das Volumen. Leergewicht: das leere Glas auf der Waage.</p>` +
         S.vessels.map(v => `<section class="card">
           ${L('vessels', v.id, 'name', v.name, 'Name', '', 'text')}
           <label class="f"><span>Form</span><select data-l="vessels" data-id="${v.id}" data-f="shape">
             <option value="round"${v.shape !== 'rect' ? ' selected' : ''}>rund</option><option value="rect"${v.shape === 'rect' ? ' selected' : ''}>rechteckig</option></select></label>
-          <div class="g2">${L('vessels', v.id, 'ml', v.ml, 'Volumen', 'ml')}${L('vessels', v.id, 'price', v.price, 'Preis', '€')}</div>
+          <div class="g2">${L('vessels', v.id, 'weight', v.weight, 'Leergewicht', 'g')}${L('vessels', v.id, 'price', v.price, 'Preis', '€')}</div>
           <div class="g3">${v.shape === 'rect'
             ? L('vessels', v.id, 'l', v.l, 'Länge', 'cm') + L('vessels', v.id, 'w', v.w, 'Breite', 'cm')
             : L('vessels', v.id, 'd', v.d, 'Durchm.', 'cm') + '<span></span>'}${L('vessels', v.id, 'h', v.h, 'Höhe', 'cm')}</div>
@@ -207,7 +217,7 @@ if (typeof document !== 'undefined') (() => {
 
   const clone = o => JSON.parse(JSON.stringify(o));
   const blank = {
-    vessels: () => ({ id: uid(), name: '', shape: 'round', ml: '', d: '', l: '', w: '', h: '', price: '' }),
+    vessels: () => ({ id: uid(), name: '', shape: 'round', weight: '', d: '', l: '', w: '', h: '', price: '' }),
     waxes: () => ({ id: uid(), name: '', density: '0.88', price: '', pct: '8', max: '10' }),
     oils: () => ({ id: uid(), name: '', price: '' }),
   };

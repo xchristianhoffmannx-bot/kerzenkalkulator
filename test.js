@@ -3,7 +3,7 @@ const assert = require('assert');
 const { calc, vesselMl, r05, defaults } = require('./app.js');
 
 const S = defaults();
-S.vessels = [{ id: 'v', shape: 'round', ml: '', d: '8', h: '8', price: '1.2' }];
+S.vessels = [{ id: 'v', shape: 'round', weight: '150', d: '8', h: '8', price: '1.2' }];
 S.oils = [{ id: 'o', name: 'Vanille', price: '0.30' }];
 S.waxes[0].price = '10'; // Soja 0,88 g/ml, 8 %
 const soja = S.waxes[0].id;
@@ -11,7 +11,8 @@ const c = { vesselId: 'v', waxId: soja, oilId: 'o', fill: '75', pct: '8', qty: '
 
 // Volumen rund: pi*4²*8 = 402,1 ml; ml hat Vorrang; rechteckig: l*w*h
 assert.ok(Math.abs(vesselMl(S.vessels[0]) - 402.12) < 0.1);
-assert.equal(vesselMl({ ml: '200', d: '8', h: '8' }), 200);
+assert.equal(vesselMl({ ml: '200' }), 200);                        // Altbestand ohne Maße
+assert.ok(Math.abs(vesselMl({ ml: '200', d: '8', h: '8' }) - 402.12) < 0.1); // Maße haben Vorrang
 assert.equal(vesselMl({ shape: 'rect', l: '10', w: '5', h: '4' }), 200);
 
 const r = calc(S, c);
@@ -67,4 +68,11 @@ assert.equal(stdPct(S, { ...c, mix: [{ id: 'a', waxId: kokos, share: '50' }] }),
 assert.equal(stdPct(S, { ...c, mix: [] }), '8');
 assert.equal(stdPct(S, { ...c, waxId: '', mix: [] }), c.pct);       // ohne Wachs unverändert
 assert.equal(waxMix(S, { ...c, mix: [{ id: 'a', waxId: kokos, share: '30' }] }).rest, 70);
+// Nachgewogen: fertige Kerze 150 g Glas + 270 g Inhalt, Öl 8 % vom Wachs
+const aw = calc(S, { ...c, mode: 'weight', total: '270', pct: '8', finished: '420' }).actual;
+assert.ok(Math.abs(aw.total - 270) < 1e-9 && Math.abs(aw.waxG - 250) < 1e-9 && Math.abs(aw.oilG - 20) < 1e-9);
+assert.ok(Math.abs(aw.diff) < 1e-9);                                // exakt wie geplant
+assert.ok(Math.abs(calc(S, { ...c, mode: 'weight', total: '270', pct: '8', finished: '440' }).actual.diff - 20) < 1e-9); // 20 g mehr
+assert.equal(calc(S, { ...c, finished: '' }).actual, null);          // ohne Eingabe nichts
+assert.equal(calc(S, { ...c, finished: '100' }).actual, null);       // leichter als das Glas: unplausibel
 console.log('ok');
