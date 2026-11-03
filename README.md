@@ -6,6 +6,15 @@ A small phone-first web app for makers of dessert candles. Pick a container, a w
 
 The interface is in German. It is a Progressive Web App (PWA): open it in Chrome on Android, choose *Install app* or *Add to Home screen*, and it works offline, for example at a market stall.
 
+## Screens
+
+The app opens on a start screen with four buttons:
+
+- **Zubehör** (supplies): containers, waxes and fragrance oils with their prices.
+- **Schneller Preis** (quick price): pick a container, enter the weight of the candle with its glass and the fragrance percentage, and see the cost and price straight away.
+- **Wachs & Duftöl**: how much wax and oil a candle needs, by container or by weight, with mixed waxes, extras and saved recipes.
+- **Meine Kerzen**: a photo gallery. Each photo can carry an optional name, fragrance oil and percentage.
+
 ## Features
 
 - **Wax amount** from container volume, fill level and wax density.
@@ -18,7 +27,8 @@ The interface is in German. It is a Progressive Web App (PWA): open it in Chrome
 - **Selling price** with an optional percentage markup on material cost, rounded to the nearest 0.50 €.
 - **Batch quantity** for a shopping list: total wax in kg, oil in ml, cost and revenue for N candles.
 - **Recipes:** save a calculation and recalculate it for a different container with one tap.
-- **Backup and restore** of all data as a JSON file.
+- **Photos** are shrunk to 900 px and stored in the browser's IndexedDB, not in localStorage.
+- **Backup and restore** of all data, photos included, as one JSON file.
 - **Selling checklist** in the info dialog (labelling and product safety reminders).
 
 ## Defaults

@@ -1,6 +1,6 @@
 // Ausführen: node test.js
 const assert = require('assert');
-const { calc, vesselMl, r05, defaults } = require('./app.js');
+const { norm, calc, vesselMl, r05, defaults } = require('./app.js');
 
 const S = defaults();
 S.vessels = [{ id: 'v', shape: 'round', weight: '150', d: '8', h: '8', price: '1.2' }];
@@ -75,4 +75,8 @@ assert.ok(Math.abs(aw.diff) < 1e-9);                                // exakt wie
 assert.ok(Math.abs(calc(S, { ...c, mode: 'weight', total: '270', pct: '8', finished: '440' }).actual.diff - 20) < 1e-9); // 20 g mehr
 assert.equal(calc(S, { ...c, finished: '' }).actual, null);          // ohne Eingabe nichts
 assert.equal(calc(S, { ...c, finished: '100' }).actual, null);       // leichter als das Glas: unplausibel
+// Alte Sicherungen ohne Fotos/Schnellpreis werden ergänzt, vorhandene Daten bleiben
+const old = norm({ waxes: [], calc: {}, recipes: [{ id: 'r' }] });
+assert.deepEqual(old.photos, []); assert.equal(old.quick.vesselId, ''); assert.equal(old.recipes.length, 1);
+assert.equal(norm({ photos: [{ id: 'p' }], quick: { vesselId: 'v' } }).photos.length, 1);
 console.log('ok');
